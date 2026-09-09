@@ -1,8 +1,9 @@
 {
-  "name": "full-dynamic-proxy",
+  "name": "rarestudy-proxy",
   "version": "1.0.0",
+  "main": "api/index.js",
   "dependencies": {
-    "express": "^4.18.2",
+    "express": "^4.19.2",
     "express-http-proxy": "^2.0.0"
   }
 }
