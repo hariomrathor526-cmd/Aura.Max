@@ -2,41 +2,47 @@ const express = require('express');
 const proxy = require('express-http-proxy');
 const app = express();
 
-const TARGET_URL = 'https://vidcloud.eu.org';
+const TARGET_URL = 'https://rarestudy.testuk.org';
 
 app.use('/', proxy(TARGET_URL, {
-  // Target server ki HTTPS SSL verify bypass
+  // 1. Target server SSL Security handling
+  proxyReqOptDecorator(proxyReqOpts, srcReq) {
+    proxyReqOpts.headers['Referer'] = TARGET_URL;
+    proxyReqOpts.headers['Origin'] = TARGET_URL;
+    proxyReqOpts.headers['Host'] = 'rarestudy.testuk.org';
+    
+    // User login/token session ko target site par maintain rakhna
+    if (srcReq.headers['authorization']) {
+      proxyReqOpts.headers['authorization'] = srcReq.headers['authorization'];
+    }
+    return proxyReqOpts;
+  },
+
+  // 2. CORS Bypass for API calls
   userResHeaderDecorator(headers, userReq, userRes, proxyReq, proxyRes) {
-    // CORS Errors completely remove karna
     headers['access-control-allow-origin'] = '*';
     headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
     headers['access-control-allow-headers'] = '*';
     headers['access-control-allow-credentials'] = 'true';
     return headers;
   },
-  proxyReqOptDecorator(proxyReqOpts, srcReq) {
-    // Target server ko convince karna ki request authentic origin se hai
-    proxyReqOpts.headers['Referer'] = TARGET_URL;
-    proxyReqOpts.headers['Origin'] = TARGET_URL;
-    proxyReqOpts.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-    return proxyReqOpts;
-  },
+
+  // 3. Dynamic DOM & Link Modification (Branding Changes)
   userResDecorator: function(proxyRes, proxyResData, userReq, userRes) {
     let contentType = proxyRes.headers['content-type'] || '';
     
-    // Sirf HTML Content me Brand Modifications karna
     if (contentType.includes('text/html')) {
       let html = proxyResData.toString('utf8');
       
-      // Hardcoded API Domains Rewrite
-      html = html.replaceAll('https://vidcloud.eu.org', '');
+      // Target API domain ko current Vercel URL se bind karna
+      html = html.replaceAll('https://rarestudy.testuk.org', '');
       
-      // Title & Logo Edit
+      // Brand Name / Title Edit
       html = html.replace(/<title>.*?<\/title>/gi, '<title>AURA MAX</title>');
-      
+
       return html;
     }
-    // Baaki saare JSON/Batch APIs, Videos, & CSS/JS raw Pass-Through honge
+    // Baaki sabhi JSON Batch API/Video streams raw bypass honge
     return proxyResData;
   }
 }));
