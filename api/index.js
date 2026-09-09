@@ -4,59 +4,69 @@ const cheerio = require('cheerio');
 module.exports = async (req, res) => {
   const TARGET_URL = 'https://vidcloud.eu.org';
   
+  // CORS Headers allow karein taaki frontend API block na ho
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   try {
-    // 1. Fetching original website with custom headers to bypass Error 429
-    const response = await axios.get(`${TARGET_URL}${req.url}`, {
+    // 1. Target URL par Server-to-Server request bhejna
+    const targetResponse = await axios({
+      method: req.method,
+      url: `${TARGET_URL}${req.url}`,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Referer': TARGET_URL
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': TARGET_URL,
+        'Origin': TARGET_URL,
+        'Authorization': req.headers['authorization'] || ''
       },
+      data: req.body,
       responseType: 'text',
       validateStatus: false
     });
 
-    // Handle non-HTML assets (CSS, JS, Images, Video streams)
-    const contentType = response.headers['content-type'] || '';
-    if (!contentType.includes('text/html')) {
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400, stale-while-revalidate'); // Caching for offline availability
-      return res.status(response.status).send(response.data);
+    const contentType = targetResponse.headers['content-type'] || '';
+
+    // 2. Agar Response JSON Data (Batches/Lectures Details) hai
+    if (contentType.includes('application/json')) {
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(targetResponse.status).send(targetResponse.data);
     }
 
-    // 2. Load HTML into Cheerio parser for custom modifications
-    const $ = cheerio.load(response.data);
+    // 3. Agar Response Static File (CSS, JS, Images, Video Stream) hai
+    if (!contentType.includes('text/html')) {
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+      return res.status(targetResponse.status).send(targetResponse.data);
+    }
 
-    // --- CUSTOMIZATIONS SECTION (Aap yahan kuch bhi add/remove/change kar sakte hain) ---
+    // 4. HTML Modify & Rewrite (Using Cheerio)
+    const $ = cheerio.load(targetResponse.data);
 
-    // A. Title Change Karein
-    $('title').text('Mera Naya Brand Name');
-
-    // B. Purana Logo Remove karke Naya Logo Add Karein
-    $('img.logo, img[src*="logo"]').attr('src', 'https://aapka-domain.com/my-new-logo.png');
-
-    // C. Unwanted Elements/Ads Remove Karein
-    $('.ad-banner, .unwanted-class, #popup-notice').remove();
-
-    // D. Naya Script / Styling / Custom Button Add Karein
-    $('head').append('<style> body { font-family: Arial, sans-serif; } </style>');
-    $('body').append('<script> console.log("Custom Clone Active"); </script>');
-
-    // E. Internal Links Ko Apne Site URL Se Replace Karein
-    $('a').each((i, el) => {
-      let href = $(el).attr('href');
-      if (href && href.includes('vidcloud.eu.org')) {
-        $(el).attr('href', href.replace('vidcloud.eu.org', req.headers.host));
+    // Hardcoded API calls ko target site ki jagah aapke proxy par divert karna
+    $('script').each((i, el) => {
+      let scriptContent = $(el).html();
+      if (scriptContent && scriptContent.includes('vidcloud.eu.org')) {
+        let updatedScript = scriptContent.replaceAll('https://vidcloud.eu.org', '');
+        $(el).html(updatedScript);
       }
     });
 
-    // 3. Enable Vercel Edge Caching (Original Down Hoga Tab Bhi Aapki Site Chale-gi)
+    // Custom Name & Logo Modify
+    $('title').text('AURA MAX');
+    $('img[src*="logo"]').attr('src', 'https://aapka-domain.com/my-logo.png');
+
+    // Caching Enable Karein (Offline Availability)
     res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800');
     res.setHeader('Content-Type', 'text/html');
 
     return res.status(200).send($.html());
 
   } catch (error) {
-    res.status(500).send('Proxy Server Error: ' + error.message);
+    return res.status(500).json({ error: 'Proxy Request Failed: ' + error.message });
   }
 };
