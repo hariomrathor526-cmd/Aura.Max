@@ -1,20 +1,5 @@
 {
   "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://vidcloud.eu.org/api/:path*"
-    },
-    {
-      "source": "/v1/:path*",
-      "destination": "https://vidcloud.eu.org/v1/:path*"
-    },
-    {
-      "source": "/batch/:path*",
-      "destination": "https://vidcloud.eu.org/batch/:path*"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/api/index.js"
-    }
+    { "source": "/(.*)", "destination": "/api/index.js" }
   ]
 }
