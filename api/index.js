@@ -1,72 +1,44 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
+const express = require('express');
+const proxy = require('express-http-proxy');
+const app = express();
 
-module.exports = async (req, res) => {
-  const TARGET_URL = 'https://vidcloud.eu.org';
-  
-  // CORS Headers allow karein taaki frontend API block na ho
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', '*');
+const TARGET_URL = 'https://vidcloud.eu.org';
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  try {
-    // 1. Target URL par Server-to-Server request bhejna
-    const targetResponse = await axios({
-      method: req.method,
-      url: `${TARGET_URL}${req.url}`,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': TARGET_URL,
-        'Origin': TARGET_URL,
-        'Authorization': req.headers['authorization'] || ''
-      },
-      data: req.body,
-      responseType: 'text',
-      validateStatus: false
-    });
-
-    const contentType = targetResponse.headers['content-type'] || '';
-
-    // 2. Agar Response JSON Data (Batches/Lectures Details) hai
-    if (contentType.includes('application/json')) {
-      res.setHeader('Content-Type', 'application/json');
-      return res.status(targetResponse.status).send(targetResponse.data);
+app.use('/', proxy(TARGET_URL, {
+  // Target server ki HTTPS SSL verify bypass
+  userResHeaderDecorator(headers, userReq, userRes, proxyReq, proxyRes) {
+    // CORS Errors completely remove karna
+    headers['access-control-allow-origin'] = '*';
+    headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+    headers['access-control-allow-headers'] = '*';
+    headers['access-control-allow-credentials'] = 'true';
+    return headers;
+  },
+  proxyReqOptDecorator(proxyReqOpts, srcReq) {
+    // Target server ko convince karna ki request authentic origin se hai
+    proxyReqOpts.headers['Referer'] = TARGET_URL;
+    proxyReqOpts.headers['Origin'] = TARGET_URL;
+    proxyReqOpts.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    return proxyReqOpts;
+  },
+  userResDecorator: function(proxyRes, proxyResData, userReq, userRes) {
+    let contentType = proxyRes.headers['content-type'] || '';
+    
+    // Sirf HTML Content me Brand Modifications karna
+    if (contentType.includes('text/html')) {
+      let html = proxyResData.toString('utf8');
+      
+      // Hardcoded API Domains Rewrite
+      html = html.replaceAll('https://vidcloud.eu.org', '');
+      
+      // Title & Logo Edit
+      html = html.replace(/<title>.*?<\/title>/gi, '<title>AURA MAX</title>');
+      
+      return html;
     }
-
-    // 3. Agar Response Static File (CSS, JS, Images, Video Stream) hai
-    if (!contentType.includes('text/html')) {
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-      return res.status(targetResponse.status).send(targetResponse.data);
-    }
-
-    // 4. HTML Modify & Rewrite (Using Cheerio)
-    const $ = cheerio.load(targetResponse.data);
-
-    // Hardcoded API calls ko target site ki jagah aapke proxy par divert karna
-    $('script').each((i, el) => {
-      let scriptContent = $(el).html();
-      if (scriptContent && scriptContent.includes('vidcloud.eu.org')) {
-        let updatedScript = scriptContent.replaceAll('https://vidcloud.eu.org', '');
-        $(el).html(updatedScript);
-      }
-    });
-
-    // Custom Name & Logo Modify
-    $('title').text('AURA MAX');
-    $('img[src*="logo"]').attr('src', 'https://aapka-domain.com/my-logo.png');
-
-    // Caching Enable Karein (Offline Availability)
-    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800');
-    res.setHeader('Content-Type', 'text/html');
-
-    return res.status(200).send($.html());
-
-  } catch (error) {
-    return res.status(500).json({ error: 'Proxy Request Failed: ' + error.message });
+    // Baaki saare JSON/Batch APIs, Videos, & CSS/JS raw Pass-Through honge
+    return proxyResData;
   }
-};
+}));
+
+module.exports = app;
